@@ -1,97 +1,158 @@
 import streamlit as st
+import time
+import random
 from google import genai
 from google.genai import types
 
 # -----------------------------------------------------------------------------
-# 1. PAGE SETUP & CONFIGURATION
+# 1. PAGE CONFIG & ARTISTIC PASTEL LAYOUT
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="AI Companion Sandbox", page_icon="🤖", layout="centered")
-st.title("🤖 My Custom AI Companion")
-st.caption("A stateful AI companion featuring a custom persona and persistent chat memory.")
+st.set_page_config(page_title="AI Companion", page_icon="🔮", layout="centered")
+
+st.markdown("""
+    <style>
+    /* Global artistic background */
+    .stApp {
+        background: linear-gradient(135deg, #E0EAFC 0%, #CFDEF3 50%, #E8F0F8 100%) !important;
+        background-attachment: fixed;
+    }
+    
+    /* Clean, single bold header */
+    .bold-header {
+        text-align: center;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-weight: 800;
+        font-size: 2.5rem;
+        color: #2C3E50;
+        margin-top: -30px;
+        margin-bottom: 25px;
+    }
+    
+    /* Distinct Floating Chat Canvas Area separating chat from non-chat parts */
+    [data-testid="stChatMessageContainer"] {
+        background: rgba(255, 255, 255, 0.5) !important;
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
+        border-radius: 20px !important;
+        padding: 20px !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03) !important;
+        margin-bottom: 20px !important;
+    }
+
+    /* Keep all text dark slate and highly visible */
+    .stMarkdown p, .stMarkdown span, .stMarkdown li {
+        color: #2C3E50 !important;
+        font-weight: 550 !important;
+    }
+    
+    /* USER MESSAGE: Right aligned pastel rose gold tint */
+    [data-testid="stChatMessageUser"] {
+        background: linear-gradient(135deg, #FFDEE9 0%, #FFB6C1 100%) !important;
+        margin-left: auto !important;
+        border-radius: 15px !important;
+        border-bottom-right-radius: 2px !important;
+        width: fit-content !important;
+        max-width: 80% !important;
+    }
+    
+    /* AI ASSISTANT MESSAGE: Left aligned pastel soft blue mint */
+    [data-testid="stChatMessageAssistant"] {
+        background: linear-gradient(135deg, #E0F2F1 0%, #D0E1FD 100%) !important;
+        margin-right: auto !important;
+        border-radius: 15px !important;
+        border-bottom-left-radius: 2px !important;
+        width: fit-content !important;
+        max-width: 80% !important;
+    }
+    
+    /* Clean input bar */
+    .stChatInput {
+        border-radius: 20px !important;
+    }
+    
+    [data-testid="stHeader"] {
+        background: transparent !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. THE PERSONA ENGINE (SYSTEM INSTRUCTIONS)
+# 2. CLEAN HEADER
 # -----------------------------------------------------------------------------
-# Modify this text to entirely change your AI's personality, behavior, or goals!
-AI_PERSONA = (
-    "You are a supportive, highly adaptive AI collaborator with a touch of wit. "
-    "Your goal is to address the user's true intent with clear, concise, and insightful responses. "
-    "Balance empathy with candor: validate the user's feelings authentically while correcting "
-    "significant misinformation gently yet directly—like a helpful peer. "
-    "Subtly adapt your tone, energy, and humor to match the user's style. "
-    "Always use clear Markdown formatting (bullet points, bold text) to avoid dense blocks of text."
-)
+st.markdown('<div class="bold-header">AI Companion</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 3. INITIALIZE STATE & INITIAL CHAT ENGINE
+# 3. INITIALIZE CLIENT & CHAT HISTORY
 # -----------------------------------------------------------------------------
-# Initialize your API client. It automatically looks for the GEMINI_API_KEY env variable,
-# or you can paste your string directly inside: genai.Client(api_key="AIzaSy...")
 if "ai_client" not in st.session_state:
-    try:
-        st.session_state.ai_client = genai.Client()
-    except Exception as e:
-        st.error("API Client initialization failed. Ensure your GEMINI_API_KEY environment variable is set.")
-        st.stop()
+    # Safe for GitHub; reads your key from Streamlit Cloud's advanced settings vault
+    st.session_state.ai_client = genai.Client()
 
-# Initialize conversational session history if it doesn't exist
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
+AI_PERSONA = (
+    "You are a supportive, witty, and highly adaptive AI companion. "
+    "Your personality is warm, helpful, charming, and intelligent. "
+    "Balance empathy with candor. Always use clear Markdown formatting."
+)
+
 # -----------------------------------------------------------------------------
-# 4. RENDER PREVIOUS MESSAGES (To keep UI consistent across script reruns)
+# 4. RENDER CHAT HISTORY USING ORIGINAL TEMPLATE STRUCTURE
 # -----------------------------------------------------------------------------
 for message in st.session_state.chat_history:
-    with st.chat_message(message["role"]):
+    avatar_logo = "🧑‍💻" if message["role"] == "user" else "🔮"
+    with st.chat_message(message["role"], avatar=avatar_logo):
         st.markdown(message["content"])
 
 # -----------------------------------------------------------------------------
-# 5. CONVERSATION LOOP
+# 5. CONVERSATION LOOP WITH RETRY LOGIC
 # -----------------------------------------------------------------------------
-# Wait for user input at the bottom of the screen
-if user_prompt := st.chat_input("Say something to your companion..."):
+if user_prompt := st.chat_input("Chit-chat with your companion here..."):
     
-    # Immediately render user message to the UI
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="🧑‍💻"):
         st.markdown(user_prompt)
     
-    # Commit the user's message to the session memory tracking array
     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
 
-    # Prepare payload back to the Model API. 
-    # We map our flat history list into the structural types expected by the SDK.
     formatted_contents = [
         types.Content(role=m["role"], parts=[types.Part.from_text(text=m["content"])])
         for m in st.session_state.chat_history
     ]
 
-    # Generate streaming response container from assistant
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="🔮"):
         response_placeholder = st.empty()
         full_response = ""
         
-        try:
-            # Call the Google Gen AI API using the lightweight streaming protocol
-            response_stream = st.session_state.ai_client.models.generate_content_stream(
-                model="gemini-2.5-flash",  # High-speed conversational baseline
-                contents=formatted_contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=AI_PERSONA,
-                    temperature=0.7 # Slight randomness for conversational flair
+        max_retries = 3
+        success = False
+        
+        for attempt in range(max_retries):
+            try:
+                response_stream = st.session_state.ai_client.models.generate_content_stream(
+                    model="gemini-2.5-flash",
+                    contents=formatted_contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=AI_PERSONA,
+                        temperature=0.7
+                    )
                 )
-            )
-            
-            # Unpack chunks as they fly back in real time
-            for chunk in response_stream:
-                full_response += chunk.text
-                # Dynamically update UI text block
-                response_placeholder.markdown(full_response + "▌")
                 
-            # Clean up the trailing cursor typing visual once generation completes
-            response_placeholder.markdown(full_response)
-            
-            # Commit the AI's final answer to persistent session state memory
-            st.session_state.chat_history.append({"role": "model", "content": full_response})
-            
-        except Exception as e:
-            st.error(f"An execution error occurred: {str(e)}")
+                for chunk in response_stream:
+                    full_response += chunk.text
+                    response_placeholder.markdown(full_response + " 🌸")
+                    
+                response_placeholder.markdown(full_response)
+                st.session_state.chat_history.append({"role": "model", "content": full_response})
+                success = True
+                break
+                
+            except Exception as e:
+                if "503" in str(e) and attempt < max_retries - 1:
+                    wait_time = 1.5 + random.random()
+                    response_placeholder.markdown(f"*Server busy, stabilizing connection (Attempt {attempt+1}/{max_retries})...*")
+                    time.sleep(wait_time)
+                else:
+                    st.error(f"An execution error occurred: {str(e)}")
+                    break
+
